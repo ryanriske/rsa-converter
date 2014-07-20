@@ -1,5 +1,5 @@
-# pubkey-converter
-==================
+pubkey-converter
+================
 This is a script that will convert RSA public keys to and from various formats.
 
     usage: ./pubkey-converter.pl [-hrcp] < file

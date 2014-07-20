@@ -13,9 +13,9 @@ use vars qw/ %opt /;
 
 # Command line options processing
 sub init() {
-	my $opts = 'hrdp';
-	getopts( "$opts", \%opt ) or usage();
-	usage() if $opt{h} or !($opt{r} or $opt{d} or $opt{p});
+    my $opts = 'hrdp';
+    getopts( "$opts", \%opt ) or usage();
+    usage() if $opt{h} or !($opt{r} or $opt{d} or $opt{p});
 }
 
 sub usage() {

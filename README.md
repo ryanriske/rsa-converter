@@ -15,3 +15,6 @@ This is a script that will convert RSA public keys to and from various formats.
   * Crypt::OpenSSL::RSA
   * Crypt::OpenSSL::Bignum
   * Parse::RecDescent
+
+### Debian-based systems
+`apt-get install libcrypt-openssl-bignum-perl libcrypt-openssl-rsa-perl libparse-recdescent-perl`

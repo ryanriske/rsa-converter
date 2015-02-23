@@ -1,6 +1,10 @@
 #!/usr/bin/perl -w
 # Convert RSA public keys from and to various formats.
-# Uses code written and placed in the public domain by Andreas Voegele
+#
+# Copyright © 2014 Ryan Riske <ryan@r1ske.net>
+# This work is free. You can redistribute it and/or modify it under the
+# terms of the Do What The Fuck You Want To Public License, Version 2,
+# as published by Sam Hocevar. See the COPYING file for more details.
 
 use strict;
 

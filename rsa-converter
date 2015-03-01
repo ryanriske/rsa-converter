@@ -1,0 +1,169 @@
+#!/usr/bin/perl -w
+# Convert RSA keys between various formats.
+#
+# Copyright © 2014 Ryan Riske <ryan@r1ske.net>
+# This work is free. You can redistribute it and/or modify it under the
+# terms of the Do What The Fuck You Want To Public License, Version 2,
+# as published by Sam Hocevar. See the COPYING file for more details.
+
+use strict;
+
+use Parse::RecDescent;
+use Crypt::OpenSSL::RSA;
+use MIME::Base64;
+use Getopt::Std;
+
+use vars qw/ %opt /;
+
+# Command line options processing
+sub init() {
+    my $opts = 'hrdpqs';
+    getopts( "$opts", \%opt ) or usage();
+    usage() if $opt{h} or !($opt{r} or $opt{d} or $opt{p} or $opt{q} or $opt{s});
+}
+
+sub usage() {
+    print STDERR << "EOF";
+This program converts RSA keys between various formats.
+You must specify at least one output format.
+
+usage: $0 [-hrcpqs] < file
+ -h : print this message
+ -r : output public key in Base64 RFC 3110 format
+ -d : output public key in hexadecimal DER format
+ -p : output public key in PEM format
+ -q : output private key in PEM format (must supply a private key)
+ -s : output private key in Racoon/strongSwan < 5.0 format (must supply a private key)
+EOF
+    exit;
+}
+
+sub input_pem {
+    my $key = shift;
+    return Crypt::OpenSSL::RSA->new_public_key($key);
+}
+
+sub input_rfc {
+    my $key = shift;
+    my $decoded = decode_base64($key);
+    my $len = unpack("C", substr($decoded, 0, 1));
+    my $e = Crypt::OpenSSL::Bignum->new_from_bin(substr($decoded, 1, $len));
+    my $n = Crypt::OpenSSL::Bignum->new_from_bin(substr($decoded, 1 + $len));
+    return Crypt::OpenSSL::RSA->new_key_from_parameters($n, $e);
+}
+
+sub input_hex {
+    my $key = shift;
+    $key =~ s/\s+//g;
+    my @bytes = map { pack("C", hex($_)) } ($key =~ /(..)/g);
+    my $encoded = encode_base64(join("", @bytes));
+    $encoded =~ s/\s+//g;
+    $encoded =~ s/(.{64})/$1\n/g;
+    my $pem = "-----BEGIN PUBLIC KEY-----\n" . $encoded . "\n-----END PUBLIC KEY-----\n";
+    return input_pem($pem);
+}
+
+sub input_pem_priv {
+    my $key = shift;
+    return Crypt::OpenSSL::RSA->new_private_key($key);
+}
+
+sub input_racoon_priv {
+    my $key = shift;
+    $key =~ /^\s+Modulus:\s+0x([0-9a-fA-F]+)$/m;
+    my $n = Crypt::OpenSSL::Bignum->new_from_hex($1);
+    $key =~ /^\s+PublicExponent:\s+0x([0-9a-fA-F]+)$/m;
+    my $e = Crypt::OpenSSL::Bignum->new_from_hex($1);
+    $key =~ /^\s+PrivateExponent:\s+0x([0-9a-fA-F]+)$/m;
+    my $d = Crypt::OpenSSL::Bignum->new_from_hex($1);
+    $key =~ /^\s+Prime1:\s+0x([0-9a-fA-F]+)$/m;
+    my $p = Crypt::OpenSSL::Bignum->new_from_hex($1);
+    $key =~ /^\s+Prime2:\s+0x([0-9a-fA-F]+)$/m;
+    my $q = Crypt::OpenSSL::Bignum->new_from_hex($1);
+    return Crypt::OpenSSL::RSA->new_key_from_parameters($n, $e, $d, $p, $q);
+}
+
+sub output_rfc {
+    my $rsa = shift;
+    my ($n, $e) = $rsa->get_key_parameters();
+    my $eb = $e->to_bin();
+    return "0s" . encode_base64(pack("C", length($eb)) . $eb . $n->to_bin(), '') . "\n";
+}
+
+sub output_pem {
+    my $rsa = shift;
+    return $rsa->get_public_key_x509_string();
+}
+
+sub output_hex {
+    my $rsa = shift;
+    my $key = output_pem($rsa);
+    $key =~ s/-----BEGIN PUBLIC KEY-----(.*?)-----END PUBLIC KEY-----/$1/s;
+    my $hex = uc(unpack("H*", decode_base64($key)));
+    $hex =~ s/(.{64})/$1\n/g;
+    $hex =~ s/(.{8})/$1 /g;
+    return $hex . "\n";
+}
+
+sub output_pem_priv {
+    my $rsa = shift;
+    return $rsa->get_private_key_string();
+}
+
+sub output_racoon_priv {
+    my $rsa = shift;
+    my ($n, $e, $d, $p, $q, $xp, $xq, $c) = $rsa->get_key_parameters();
+    my $output = ": RSA\t{\n";
+    $output .= "\t# RSA " . $rsa->size() * 8 . " bits\n";
+    $output .= "\t# for signatures only, UNSAFE FOR ENCRYPTION\n";
+    $output .= "\t#pubkey=" . output_rfc($rsa);
+    $output .= "\tModulus: 0x" . lc($n->to_hex()) . "\n";
+    $output .= "\tPublicExponent: 0x" . lc($e->to_hex()) . "\n";
+    $output .= "\t# everything after this point is secret\n";
+    $output .= "\tPrivateExponent: 0x" . lc($d->to_hex()) . "\n";
+    $output .= "\tPrime1: 0x" . lc($p->to_hex()) . "\n";
+    $output .= "\tPrime2: 0x" . lc($q->to_hex()) . "\n";
+    $output .= "\tExponent1: 0x" . lc($xp->to_hex()) . "\n";
+    $output .= "\tExponent2: 0x" . lc($xq->to_hex()) . "\n";
+    $output .= "\tCoefficient: 0x" . lc($c->to_hex()) . "\n";
+    $output .= "\t}\n# do not change the indenting of that \"}\"\n";
+    return $output;
+}
+
+init();
+
+my $grammar = q {
+    input: item
+    item: pempubkey | rfcpubkey | hexpubkey | pemprivkey | racoonprivkey | other
+    pempubkey: m{-----BEGIN PUBLIC KEY-----.*?-----END PUBLIC KEY-----}s
+               { $return = ::input_pem($item[1]); }
+    rfcpubkey: m{0s[A-Za-z0-9+/=]+}
+               { $return = ::input_rfc(substr($item[1], 2)); }
+    hexpubkey: m{^\s*(?:[A-Z0-9]{2}\s*)+}s
+               { $return = ::input_hex($item[1]); }
+    pemprivkey: m{-----BEGIN RSA PRIVATE KEY-----.*?-----END RSA PRIVATE KEY-----}s
+               { $return = ::input_pem_priv($item[1]); }
+    racoonprivkey: m/:\s+RSA\s+\{.*/s
+               { $return = ::input_racoon_priv($item[1]); }
+    other: /.*/ { undef $return; }
+};
+
+my $parser = new Parse::RecDescent($grammar);
+undef $/;
+my $input = <>;
+my $rsa = $parser->input($input);
+if (defined $rsa) {
+    print output_rfc($rsa) if $opt{r};
+    print output_pem($rsa) if $opt{p};
+    print output_hex($rsa) if $opt{d};
+    if ($opt{q} or $opt{s}) {
+        if ($rsa->is_private()) {
+            print output_pem_priv($rsa) if $opt{q};
+            print output_racoon_priv($rsa) if $opt{s};
+        } else {
+            print STDERR "Error: must supply a private key to use -q or -s!\n";
+        }
+    }
+} else {
+    usage();
+}

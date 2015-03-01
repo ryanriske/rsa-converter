@@ -2,7 +2,7 @@ rsa-converter
 ================
 This is a script that will convert RSA keys between various formats.
 
-    usage: ./rsa-converter [-hrcpqs] < file
+    usage: ./rsa-converter [-hrdpqs] < file
      -h : print this message
      -r : output public key in Base64 RFC 3110 format
      -d : output public key in hexadecimal DER format
